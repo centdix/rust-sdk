@@ -153,12 +153,7 @@ pub struct SseServerTransport {
 }
 
 // --- Add this trait ---
-pub trait ProvidesConnectionToken {
-    // Returns the token associated with the initial connection, if any.
-    fn get_connection_token(&self) -> Arc<String>;
-}
-
-impl ProvidesConnectionToken for SseServerTransport {
+impl crate::service::ProvidesConnectionToken for SseServerTransport {
     fn get_connection_token(&self) -> Arc<String> {
         self.user_token.clone()
     }
