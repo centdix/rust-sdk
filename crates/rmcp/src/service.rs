@@ -11,6 +11,12 @@ use crate::{
     },
     transport::IntoTransport,
 };
+
+pub trait ProvidesConnectionToken {
+    // Returns the token associated with the initial connection, if any.
+    fn get_connection_token(&self) -> Arc<String>;
+}
+
 #[cfg(feature = "client")]
 mod client;
 #[cfg(feature = "client")]
@@ -109,7 +115,7 @@ pub trait ServiceExt<R: ServiceRole>: Service<R> + Sized {
         transport: T,
     ) -> impl Future<Output = Result<RunningService<R, Self>, E>> + Send
     where
-        T: IntoTransport<R, E, A>,
+        T: IntoTransport<R, E, A> + ProvidesConnectionToken,
         E: std::error::Error + From<std::io::Error> + Send + Sync + 'static,
         Self: Sized,
     {
@@ -121,7 +127,7 @@ pub trait ServiceExt<R: ServiceRole>: Service<R> + Sized {
         ct: CancellationToken,
     ) -> impl Future<Output = Result<RunningService<R, Self>, E>> + Send
     where
-        T: IntoTransport<R, E, A>,
+        T: IntoTransport<R, E, A> + ProvidesConnectionToken,
         E: std::error::Error + From<std::io::Error> + Send + Sync + 'static,
         Self: Sized;
 }
@@ -474,6 +480,7 @@ pub struct RequestContext<R: ServiceRole> {
     pub extensions: Extensions,
     /// An interface to fetch the remote client or server
     pub peer: Peer<R>,
+    pub user_token: Arc<String>,
 }
 
 /// Use this function to skip initialization process
@@ -485,7 +492,7 @@ pub async fn serve_directly<R, S, T, E, A>(
 where
     R: ServiceRole,
     S: Service<R>,
-    T: IntoTransport<R, E, A>,
+    T: IntoTransport<R, E, A> + ProvidesConnectionToken,
     E: std::error::Error + Send + Sync + 'static,
 {
     serve_directly_with_ct(service, transport, peer_info, Default::default()).await
@@ -501,11 +508,12 @@ pub async fn serve_directly_with_ct<R, S, T, E, A>(
 where
     R: ServiceRole,
     S: Service<R>,
-    T: IntoTransport<R, E, A>,
+    T: IntoTransport<R, E, A> + ProvidesConnectionToken,
     E: std::error::Error + Send + Sync + 'static,
 {
     let (peer, peer_rx) = Peer::new(Arc::new(AtomicU32RequestIdProvider::default()), peer_info);
-    serve_inner(service, transport, peer, peer_rx, ct).await
+    let user_token = transport.get_connection_token();
+    serve_inner(service, transport, peer, peer_rx, ct, user_token).await
 }
 
 #[instrument(skip_all)]
@@ -515,6 +523,7 @@ async fn serve_inner<R, S, T, E, A>(
     peer: Peer<R>,
     mut peer_rx: tokio::sync::mpsc::Receiver<PeerSinkMessage<R>>,
     ct: CancellationToken,
+    user_token: Arc<String>,
 ) -> Result<RunningService<R, S>, E>
 where
     R: ServiceRole,
@@ -669,6 +678,7 @@ where
                             peer: peer.clone(),
                             meta: request.get_meta().clone(),
                             extensions: request.extensions().clone(),
+                            user_token: user_token.clone(),
                         };
                         tokio::spawn(async move {
                             let result = service.handle_request(request, context).await;

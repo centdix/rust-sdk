@@ -11,6 +11,7 @@ use axum::{
     routing::{get, post},
 };
 use futures::{Sink, SinkExt, Stream};
+use serde::Deserialize;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::{CancellationToken, PollSender};
 use tracing::Instrument;
@@ -26,6 +27,11 @@ type TxStore =
 pub type TransportReceiver = ReceiverStream<RxJsonRpcMessage<RoleServer>>;
 
 const DEFAULT_AUTO_PING_INTERVAL: Duration = Duration::from_secs(15);
+
+#[derive(Deserialize)]
+struct TokenParams {
+    token: Option<String>,
+}
 
 #[derive(Clone)]
 struct App {
@@ -67,6 +73,7 @@ pub struct PostEventQuery {
     pub session_id: String,
 }
 
+#[axum::debug_handler]
 async fn post_event_handler(
     State(app): State<App>,
     Query(PostEventQuery { session_id }): Query<PostEventQuery>,
@@ -86,10 +93,14 @@ async fn post_event_handler(
     Ok(StatusCode::ACCEPTED)
 }
 
+#[axum::debug_handler]
 async fn sse_handler(
     State(app): State<App>,
+    Query(params): Query<TokenParams>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, io::Error>>>, Response<String>> {
     let session = session_id();
+    let user_token = params.token.unwrap_or_else(|| "".to_string());
+    let token = Arc::new(user_token);
     tracing::info!(%session, "sse connection");
     use tokio_stream::{StreamExt, wrappers::ReceiverStream};
     use tokio_util::sync::PollSender;
@@ -107,6 +118,7 @@ async fn sse_handler(
         sink,
         session_id: session.clone(),
         tx_store: app.txs.clone(),
+        user_token: token.clone(),
     };
     let transport_send_result = app.transport_tx.send(transport);
     if transport_send_result.is_err() {
@@ -137,6 +149,19 @@ pub struct SseServerTransport {
     sink: PollSender<TxJsonRpcMessage<RoleServer>>,
     session_id: SessionId,
     tx_store: TxStore,
+    pub user_token: Arc<String>,
+}
+
+// --- Add this trait ---
+pub trait ProvidesConnectionToken {
+    // Returns the token associated with the initial connection, if any.
+    fn get_connection_token(&self) -> Arc<String>;
+}
+
+impl ProvidesConnectionToken for SseServerTransport {
+    fn get_connection_token(&self) -> Arc<String> {
+        self.user_token.clone()
+    }
 }
 
 impl Sink<TxJsonRpcMessage<RoleServer>> for SseServerTransport {

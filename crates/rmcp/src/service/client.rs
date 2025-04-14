@@ -16,6 +16,8 @@ use crate::model::{
     SubscribeRequest, SubscribeRequestParam, UnsubscribeRequest, UnsubscribeRequestParam,
 };
 
+use crate::transport::sse_server::ProvidesConnectionToken;
+
 /// It represents the error that may occur when serving the client.
 ///
 /// if you want to handle the error, you can use `serve_client_with_ct` or `serve_client` with `Result<RunningService<RoleClient, S>, ClientError>`
@@ -93,7 +95,7 @@ impl<S: Service<RoleClient>> ServiceExt<RoleClient> for S {
         ct: CancellationToken,
     ) -> impl Future<Output = Result<RunningService<RoleClient, Self>, E>> + Send
     where
-        T: IntoTransport<RoleClient, E, A>,
+        T: IntoTransport<RoleClient, E, A> + ProvidesConnectionToken,
         E: std::error::Error + From<std::io::Error> + Send + Sync + 'static,
         Self: Sized,
     {
@@ -107,7 +109,7 @@ pub async fn serve_client<S, T, E, A>(
 ) -> Result<RunningService<RoleClient, S>, E>
 where
     S: Service<RoleClient>,
-    T: IntoTransport<RoleClient, E, A>,
+    T: IntoTransport<RoleClient, E, A> + ProvidesConnectionToken,
     E: std::error::Error + From<std::io::Error> + Send + Sync + 'static,
 {
     serve_client_with_ct(service, transport, Default::default()).await
@@ -120,9 +122,10 @@ pub async fn serve_client_with_ct<S, T, E, A>(
 ) -> Result<RunningService<RoleClient, S>, E>
 where
     S: Service<RoleClient>,
-    T: IntoTransport<RoleClient, E, A>,
+    T: IntoTransport<RoleClient, E, A> + ProvidesConnectionToken,
     E: std::error::Error + From<std::io::Error> + Send + Sync + 'static,
 {
+    let user_token = transport.get_connection_token();
     let (sink, stream) = transport.into_transport();
     let mut sink = Box::pin(sink);
     let mut stream = Box::pin(stream);
@@ -175,7 +178,7 @@ where
     );
     sink.send(notification).await?;
     let (peer, peer_rx) = Peer::new(id_provider, initialize_result);
-    serve_inner(service, (sink, stream), peer, peer_rx, ct).await
+    serve_inner(service, (sink, stream), peer, peer_rx, ct, user_token).await
 }
 
 macro_rules! method {
