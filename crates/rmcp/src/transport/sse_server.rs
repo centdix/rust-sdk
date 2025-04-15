@@ -139,7 +139,7 @@ async fn sse_handler(
         Some(id) => id.clone(), // Clone it for use in the formatted string
         None => String::from("test"),
     };
-    let full_endpoint_path = format!("/w/{}/mcp/{}", workspace_id, relative_post_path);
+    let full_endpoint_path = format!("/api/w/{}/mcp/{}", workspace_id, relative_post_path);
     let stream = futures::stream::once(futures::future::ok(
         Event::default()
             .event("endpoint")
