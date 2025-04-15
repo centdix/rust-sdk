@@ -125,9 +125,9 @@ async fn sse_handler(
     let post_path = app.post_path.as_ref();
     let ping_interval = app.sse_ping_interval;
     let stream = futures::stream::once(futures::future::ok(
-        Event::default().event("endpoint").data(format!(
-            "/api/w/{workspace_id}/mcp/{post_path}?sessionId={session}"
-        )),
+        Event::default()
+            .event("endpoint")
+            .data(format!("{post_path}?sessionId={session}")),
     ))
     .chain(ReceiverStream::new(to_client_rx).map(|message| {
         match serde_json::to_string(&message) {
