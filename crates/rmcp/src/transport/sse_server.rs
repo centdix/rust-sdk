@@ -130,12 +130,11 @@ async fn sse_handler(
         *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
         return Err(response);
     }
-    let post_path = app.post_path.as_ref();
     let ping_interval = app.sse_ping_interval;
     let stream = futures::stream::once(futures::future::ok(
         Event::default()
             .event("endpoint")
-            .data(format!("{post_path}?sessionId={session}")),
+            .data(format!("api/w/admins/mcp/message?sessionId={session}")),
     ))
     .chain(ReceiverStream::new(to_client_rx).map(|message| {
         match serde_json::to_string(&message) {
