@@ -97,7 +97,7 @@ async fn post_event_handler(
 async fn sse_handler(
     State(app): State<App>,
     Query(params): Query<TokenParams>,
-    Path(workspace_id): Path<String>,
+    Path(path_params): Path<HashMap<String, String>>,
     request: Request,
 ) -> Result<Sse<impl Stream<Item = Result<Event, io::Error>>>, Response<String>> {
     let session = session_id();
@@ -134,6 +134,11 @@ async fn sse_handler(
     let ping_interval = app.sse_ping_interval;
     let relative_post_path = app.post_path.trim_start_matches('/'); // Ensure no leading slash, e.g., "message"
     // Construct the full nested path
+    let workspace_id = match path_params.get("workspace_id") {
+        // Use the name from your route definition
+        Some(id) => id.clone(), // Clone it for use in the formatted string
+        None => String::from("test"),
+    };
     let full_endpoint_path = format!("/w/{}/mcp/{}", workspace_id, relative_post_path);
     let stream = futures::stream::once(futures::future::ok(
         Event::default()
