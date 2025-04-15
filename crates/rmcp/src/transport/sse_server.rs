@@ -2,7 +2,7 @@ use std::{collections::HashMap, io, net::SocketAddr, sync::Arc, time::Duration};
 
 use axum::{
     Json, Router,
-    extract::{Query, Request, State},
+    extract::{Path, Query, Request, State},
     http::{Extensions, StatusCode},
     response::{
         Response,
@@ -97,6 +97,7 @@ async fn post_event_handler(
 async fn sse_handler(
     State(app): State<App>,
     Query(params): Query<TokenParams>,
+    Path(workspace_id): Path<String>,
     request: Request,
 ) -> Result<Sse<impl Stream<Item = Result<Event, io::Error>>>, Response<String>> {
     let session = session_id();
@@ -130,12 +131,14 @@ async fn sse_handler(
         *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
         return Err(response);
     }
-    let post_path = app.post_path.as_ref();
     let ping_interval = app.sse_ping_interval;
+    let relative_post_path = app.post_path.trim_start_matches('/'); // Ensure no leading slash, e.g., "message"
+    // Construct the full nested path
+    let full_endpoint_path = format!("/w/{}/mcp/{}", workspace_id, relative_post_path);
     let stream = futures::stream::once(futures::future::ok(
         Event::default()
             .event("endpoint")
-            .data(format!("{post_path}?sessionId={session}")),
+            .data(format!("{full_endpoint_path}?sessionId={session}")),
     ))
     .chain(ReceiverStream::new(to_client_rx).map(|message| {
         match serde_json::to_string(&message) {
