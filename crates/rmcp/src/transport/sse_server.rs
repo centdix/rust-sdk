@@ -2,8 +2,8 @@ use std::{collections::HashMap, io, net::SocketAddr, sync::Arc, time::Duration};
 
 use axum::{
     Json, Router,
-    extract::{Query, State},
-    http::StatusCode,
+    extract::{Query, Request, State},
+    http::{Extensions, StatusCode},
     response::{
         Response,
         sse::{Event, KeepAlive, Sse},
@@ -97,6 +97,7 @@ async fn post_event_handler(
 async fn sse_handler(
     State(app): State<App>,
     Query(params): Query<TokenParams>,
+    request: Request,
 ) -> Result<Sse<impl Stream<Item = Result<Event, io::Error>>>, Response<String>> {
     let session = session_id();
     let user_token = params.token.unwrap_or_else(|| "".to_string());
@@ -119,6 +120,7 @@ async fn sse_handler(
         session_id: session.clone(),
         tx_store: app.txs.clone(),
         user_token: token.clone(),
+        req_extensions: request.extensions().clone(),
     };
     let transport_send_result = app.transport_tx.send(transport);
     if transport_send_result.is_err() {
@@ -150,12 +152,17 @@ pub struct SseServerTransport {
     session_id: SessionId,
     tx_store: TxStore,
     pub user_token: Arc<String>,
+    pub req_extensions: Extensions,
 }
 
 // --- Add this trait ---
 impl crate::service::ProvidesConnectionToken for SseServerTransport {
     fn get_connection_token(&self) -> Arc<String> {
         self.user_token.clone()
+    }
+
+    fn get_extensions(&self) -> &Extensions {
+        &self.req_extensions
     }
 }
 

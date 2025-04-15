@@ -12,9 +12,12 @@ use crate::{
     transport::IntoTransport,
 };
 
+use axum::http::Extensions as AxumExtensions;
+
 pub trait ProvidesConnectionToken {
     // Returns the token associated with the initial connection, if any.
     fn get_connection_token(&self) -> Arc<String>;
+    fn get_extensions(&self) -> &AxumExtensions;
 }
 
 #[cfg(feature = "client")]
@@ -481,6 +484,7 @@ pub struct RequestContext<R: ServiceRole> {
     /// An interface to fetch the remote client or server
     pub peer: Peer<R>,
     pub user_token: Arc<String>,
+    pub req_extensions: AxumExtensions,
 }
 
 /// Use this function to skip initialization process
@@ -513,7 +517,17 @@ where
 {
     let (peer, peer_rx) = Peer::new(Arc::new(AtomicU32RequestIdProvider::default()), peer_info);
     let user_token = transport.get_connection_token();
-    serve_inner(service, transport, peer, peer_rx, ct, user_token).await
+    let req_extensions = transport.get_extensions().clone();
+    serve_inner(
+        service,
+        transport,
+        peer,
+        peer_rx,
+        ct,
+        user_token,
+        req_extensions,
+    )
+    .await
 }
 
 #[instrument(skip_all)]
@@ -524,6 +538,7 @@ async fn serve_inner<R, S, T, E, A>(
     mut peer_rx: tokio::sync::mpsc::Receiver<PeerSinkMessage<R>>,
     ct: CancellationToken,
     user_token: Arc<String>,
+    req_extensions: AxumExtensions,
 ) -> Result<RunningService<R, S>, E>
 where
     R: ServiceRole,
@@ -679,6 +694,7 @@ where
                             meta: request.get_meta().clone(),
                             extensions: request.extensions().clone(),
                             user_token: user_token.clone(),
+                            req_extensions: req_extensions.clone(),
                         };
                         tokio::spawn(async move {
                             let result = service.handle_request(request, context).await;

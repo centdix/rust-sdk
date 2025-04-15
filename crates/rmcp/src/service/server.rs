@@ -133,6 +133,7 @@ where
     E: std::error::Error + From<std::io::Error> + Send + Sync + 'static,
 {
     let user_token = transport.get_connection_token();
+    let req_extensions = transport.get_extensions().clone();
     let (sink, stream) = transport.into_transport();
     let mut sink = Box::pin(sink);
     let mut stream = Box::pin(stream);
@@ -164,6 +165,7 @@ where
         extensions: request.extensions().clone(),
         peer: peer.clone(),
         user_token: user_token.clone(),
+        req_extensions: req_extensions.clone(),
     };
     // Send initialize response
     let init_response = service.handle_request(request.clone(), context).await;
@@ -209,7 +211,16 @@ where
     };
     let _ = service.handle_notification(notification).await;
     // Continue processing service
-    serve_inner(service, (sink, stream), peer, peer_rx, ct, user_token).await
+    serve_inner(
+        service,
+        (sink, stream),
+        peer,
+        peer_rx,
+        ct,
+        user_token,
+        req_extensions,
+    )
+    .await
 }
 
 macro_rules! method {
