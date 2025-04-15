@@ -132,7 +132,8 @@ where
     T: IntoTransport<RoleServer, E, A> + ProvidesConnectionToken,
     E: std::error::Error + From<std::io::Error> + Send + Sync + 'static,
 {
-    let user_token = transport.get_connection_token();
+    let extensions_clone = transport.get_extensions().clone();
+    let workspace_id_clone = transport.get_workspace_id().to_string();
     let (sink, stream) = transport.into_transport();
     let mut sink = Box::pin(sink);
     let mut stream = Box::pin(stream);
@@ -163,7 +164,8 @@ where
         meta: request.get_meta().clone(),
         extensions: request.extensions().clone(),
         peer: peer.clone(),
-        user_token: user_token.clone(),
+        axium_extensions: extensions_clone.clone(),
+        workspace_id: workspace_id_clone.clone(),
     };
     // Send initialize response
     let init_response = service.handle_request(request.clone(), context).await;
@@ -209,7 +211,16 @@ where
     };
     let _ = service.handle_notification(notification).await;
     // Continue processing service
-    serve_inner(service, (sink, stream), peer, peer_rx, ct, user_token).await
+    serve_inner(
+        service,
+        (sink, stream),
+        peer,
+        peer_rx,
+        ct,
+        extensions_clone,
+        workspace_id_clone,
+    )
+    .await
 }
 
 macro_rules! method {

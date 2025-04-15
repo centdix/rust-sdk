@@ -12,9 +12,11 @@ use crate::{
     transport::IntoTransport,
 };
 
+use axum::http::Extensions as AxumExtensions;
+
 pub trait ProvidesConnectionToken {
-    // Returns the token associated with the initial connection, if any.
-    fn get_connection_token(&self) -> Arc<String>;
+    fn get_extensions(&self) -> &AxumExtensions;
+    fn get_workspace_id(&self) -> &str;
 }
 
 #[cfg(feature = "client")]
@@ -480,7 +482,8 @@ pub struct RequestContext<R: ServiceRole> {
     pub extensions: Extensions,
     /// An interface to fetch the remote client or server
     pub peer: Peer<R>,
-    pub user_token: Arc<String>,
+    pub axium_extensions: AxumExtensions,
+    pub workspace_id: String,
 }
 
 /// Use this function to skip initialization process
@@ -512,8 +515,18 @@ where
     E: std::error::Error + Send + Sync + 'static,
 {
     let (peer, peer_rx) = Peer::new(Arc::new(AtomicU32RequestIdProvider::default()), peer_info);
-    let user_token = transport.get_connection_token();
-    serve_inner(service, transport, peer, peer_rx, ct, user_token).await
+    let extensions_clone = transport.get_extensions().clone();
+    let workspace_id_clone = transport.get_workspace_id().to_string();
+    serve_inner(
+        service,
+        transport,
+        peer,
+        peer_rx,
+        ct,
+        extensions_clone,
+        workspace_id_clone,
+    )
+    .await
 }
 
 #[instrument(skip_all)]
@@ -523,7 +536,8 @@ async fn serve_inner<R, S, T, E, A>(
     peer: Peer<R>,
     mut peer_rx: tokio::sync::mpsc::Receiver<PeerSinkMessage<R>>,
     ct: CancellationToken,
-    user_token: Arc<String>,
+    extensions_clone: AxumExtensions,
+    workspace_id_clone: String,
 ) -> Result<RunningService<R, S>, E>
 where
     R: ServiceRole,
@@ -553,6 +567,7 @@ where
     // let mut stream = std::pin::pin!(stream);
     let serve_loop_ct = ct.child_token();
     let peer_return: Peer<R> = peer.clone();
+
     let handle = tokio::spawn(async move {
         let (mut sink, mut stream) = transport.into_transport();
         let mut sink = std::pin::pin!(sink);
@@ -678,7 +693,8 @@ where
                             peer: peer.clone(),
                             meta: request.get_meta().clone(),
                             extensions: request.extensions().clone(),
-                            user_token: user_token.clone(),
+                            axium_extensions: extensions_clone.clone(),
+                            workspace_id: workspace_id_clone.clone(),
                         };
                         tokio::spawn(async move {
                             let result = service.handle_request(request, context).await;
