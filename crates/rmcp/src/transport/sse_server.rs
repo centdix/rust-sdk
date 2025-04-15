@@ -137,7 +137,7 @@ async fn sse_handler(
     let workspace_id = match path_params.get("workspace_id") {
         // Use the name from your route definition
         Some(id) => id.clone(), // Clone it for use in the formatted string
-        None => String::from("test"),
+        None => String::from("admins"),
     };
     let full_endpoint_path = format!("/api/w/{}/mcp/{}", workspace_id, relative_post_path);
     let stream = futures::stream::once(futures::future::ok(
